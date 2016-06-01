@@ -385,8 +385,9 @@ static int video_querycap(struct device *dev, unsigned int *capabilities)
 
 	printf("Device `%s' on `%s' (driver '%s') is a video %s (%s mplanes) device.\n",
 		cap.card, cap.bus_info, cap.driver,
+		caps & (V4L2_CAP_VIDEO_M2M_MPLANE | V4L2_CAP_VIDEO_M2M) ? "memory-to-memory" :
 		caps & (V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_VIDEO_CAPTURE) ? "capture" : "output",
-		caps & (V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_VIDEO_OUTPUT_MPLANE) ? "with" : "without");
+		caps & (V4L2_CAP_VIDEO_CAPTURE_MPLANE | V4L2_CAP_VIDEO_OUTPUT_MPLANE | V4L2_CAP_VIDEO_M2M_MPLANE) ? "with" : "without");
 
 	*capabilities = caps;
 
@@ -395,7 +396,11 @@ static int video_querycap(struct device *dev, unsigned int *capabilities)
 
 static int cap_get_buf_type(unsigned int capabilities)
 {
-	if (capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
+	if (capabilities & V4L2_CAP_VIDEO_M2M_MPLANE) {
+		return V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+	} else if (capabilities & V4L2_CAP_VIDEO_M2M) {
+		return V4L2_BUF_TYPE_VIDEO_CAPTURE;
+	} else if (capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) {
 		return V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
 	} else if (capabilities & V4L2_CAP_VIDEO_OUTPUT_MPLANE) {
 		return V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -404,7 +409,7 @@ static int cap_get_buf_type(unsigned int capabilities)
 	} else if (capabilities & V4L2_CAP_VIDEO_OUTPUT) {
 		return V4L2_BUF_TYPE_VIDEO_OUTPUT;
 	} else {
-		printf("Device supports neither capture nor output.\n");
+		printf("Device supports neither capture, output, nor M2M.\n");
 		return -EINVAL;
 	}
 
