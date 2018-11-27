@@ -1547,7 +1547,43 @@ static void video_set_control(struct device *dev, unsigned int id,
 		free(ctrl.ptr);
 }
 
-static void video_list_controls(struct device *dev)
+static int video_reset_control(struct device *dev, unsigned int id)
+{
+	struct v4l2_query_ext_ctrl query;
+	struct v4l2_ext_control ctrl;
+	int ret;
+
+	ret = query_control(dev, id, &query);
+	if (ret < 0)
+		return ret;
+
+	if (query.type == V4L2_CTRL_TYPE_CTRL_CLASS)
+		return query.id;
+
+	/* Skip controls that we cannot (or should not) update. */
+	if (query.flags & (V4L2_CTRL_FLAG_DISABLED
+			|  V4L2_CTRL_FLAG_VOLATILE
+			|  V4L2_CTRL_FLAG_READ_ONLY))
+		return query.id;
+
+	ctrl.id = query.id;
+	ctrl.value = query.default_value;
+
+	ret = set_control(dev, &query, &ctrl);
+	if (ret < 0) {
+		printf("unable to reset control 0x%8.8x: %s (%d).\n",
+			id, strerror(errno), errno);
+	} else {
+		printf("control 0x%08x reset to ", id);
+
+		video_print_control_value(&query, &ctrl);
+		printf("\n");
+	}
+
+	return query.id;
+}
+
+static void video_list_controls(struct device *dev, bool reset)
 {
 	unsigned int nctrls = 0;
 	unsigned int id;
@@ -1567,6 +1603,12 @@ static void video_list_controls(struct device *dev)
 		ret = video_get_control(dev, id, true);
 		if (ret < 0)
 			break;
+
+		if (reset) {
+			ret = video_reset_control(dev, id);
+			if (ret < 0)
+				break;
+		}
 
 		id = ret;
 		nctrls++;
@@ -2206,6 +2248,7 @@ static void usage(const char *argv0)
 	printf("    --offset			User pointer buffer offset from page start\n");
 	printf("    --premultiplied		Color components are premultiplied by alpha value\n");
 	printf("    --queue-late		Queue buffers after streamon, not before\n");
+	printf("    --reset-controls		Enumerate available controls and reset to defaults\n");
 	printf("    --requeue-last		Requeue the last buffers before streamoff\n");
 	printf("    --timestamp-source		Set timestamp source on output buffers [eof, soe]\n");
 	printf("    --skip n			Skip the first n frames\n");
@@ -2229,6 +2272,7 @@ static void usage(const char *argv0)
 #define OPT_PREMULTIPLIED	269
 #define OPT_QUEUE_LATE		270
 #define OPT_DATA_PREFIX		271
+#define OPT_RESET_CONTROLS	272
 
 static struct option opts[] = {
 	{"buffer-size", 1, 0, OPT_BUFFER_SIZE},
@@ -2257,6 +2301,7 @@ static struct option opts[] = {
 	{"queue-late", 0, 0, OPT_QUEUE_LATE},
 	{"get-control", 1, 0, 'r'},
 	{"requeue-last", 0, 0, OPT_REQUEUE_LAST},
+	{"reset-controls", 0, 0, OPT_RESET_CONTROLS},
 	{"realtime", 2, 0, 'R'},
 	{"size", 1, 0, 's'},
 	{"set-control", 1, 0, 'w'},
@@ -2284,6 +2329,7 @@ int main(int argc, char *argv[])
 	int do_enum_formats = 0, do_set_format = 0;
 	int do_enum_inputs = 0, do_set_input = 0;
 	int do_list_controls = 0, do_get_control = 0, do_set_control = 0;
+	int do_reset_controls = 0;
 	int do_sleep_forever = 0, do_requeue_last = 0;
 	int do_rt = 0, do_log_status = 0;
 	int no_query = 0, do_queue_late = 0;
@@ -2476,6 +2522,9 @@ int main(int argc, char *argv[])
 		case OPT_QUEUE_LATE:
 			do_queue_late = 1;
 			break;
+		case OPT_RESET_CONTROLS:
+			do_reset_controls = 1;
+			break;
 		case OPT_REQUEUE_LAST:
 			do_requeue_last = 1;
 			break;
@@ -2560,7 +2609,10 @@ int main(int argc, char *argv[])
 		video_set_control(&dev, ctrl_name, ctrl_value);
 
 	if (do_list_controls)
-		video_list_controls(&dev);
+		video_list_controls(&dev, false);
+
+	if (do_reset_controls)
+		video_list_controls(&dev, true);
 
 	if (do_enum_formats) {
 		printf("- Available formats:\n");
